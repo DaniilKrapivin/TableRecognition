@@ -1,0 +1,115 @@
+def get_table_bbox(table_xml_path,  new_image_shape):
+    
+    tree = ET.parse(table_xml_path)
+    root = tree.getroot()
+
+    px0, py1, px1, py0 = list(map(lambda x: struct.unpack('!d', bytes.fromhex(x))[0], root.get("CropBox").split()))
+    pw = abs(px1 - px0)
+    ph = abs(py1 - py0)
+
+    table_bboxes = []
+
+    for table in root.findall(".//Composite[@Label='TableBody']"):
+        x0p, y0m, x1p,y1m  = list(map(lambda x: struct.unpack('!d', bytes.fromhex(x))[0], table.get("BBox").split()))
+        x0 = round(new_image_shape[1]*(x0p - px0)/pw)
+        x1 = round(new_image_shape[1]*(x1p - px0)/pw)
+        y0 = round(new_image_shape[0]*(py1 - y0m)/ph)
+        y1 = round(new_image_shape[0]*(py1 - y1m)/ph)
+        
+        table_bboxes.append([x0,y0, x1,y1])
+    return table_bboxes
+      
+def get_col_bbox(column_xml_path, prev_img_shape, new_image_shape, table_bboxes):
+    
+    tree = ET.parse(column_xml_path)
+    root = tree.getroot()
+    xmins = [round(int(coord.text) * new_image_shape[1] / prev_img_shape[1]) for coord in root.findall("./object/bndbox/xmin")]
+    xmaxs = [round(int(coord.text) * new_image_shape[1] / prev_img_shape[1]) for coord in root.findall("./object/bndbox/xmax")]
+    ymins = [round(int(coord.text) * new_image_shape[0] / prev_img_shape[0]) for coord in root.findall("./object/bndbox/ymin")]
+    ymaxs = [round(int(coord.text) * new_image_shape[0] / prev_img_shape[0]) for coord in root.findall("./object/bndbox/ymax")]
+
+    col_bbox = []
+    for x_min, y_min, x_max, y_max in zip(xmins,ymins,xmaxs,ymaxs):
+        bbox = [x_min, y_min, x_max, y_max]
+        col_bbox.append(bbox)
+    
+    if len(table_bboxes) == 0:
+        thresh = 3
+        x_min = min([x[0] for x in col_bbox]) - thresh 
+        y_min = min([x[1] for x in col_bbox]) - thresh 
+        x_max = max([x[2] for x in col_bbox]) + thresh  
+        y_max = max([x[3] for x in col_bbox]) + thresh 
+        
+        table_bboxes = [[x_min, y_min, x_max, y_max]]
+    
+    return col_bbox, table_bboxes
+    
+    
+def create_mask(new_h, new_w, bboxes = None):
+    
+    mask = np.zeros((new_h, new_w), dtype=np.int32)
+    
+    if bboxes is None or len(bboxes)==0:
+         return Image.fromarray(mask)
+    
+    for box in bboxes:
+        mask[box[1]:box[3], box[0]:box[2]] = 255
+    
+    return Image.fromarray(mask)
+    
+    
+    
+##Example
+processed_data = []
+
+for i, data in enumerate([neg_data, pos_data]):
+    
+    for j, img_path in tqdm(enumerate(data)):
+        
+        image_name = os.path.basename(img_path)
+        image = Image.open(img_path)
+        w, h = image.size
+        
+        #convert to RGB image
+        image = image.resize((new_h, new_w))
+        if image.mode != 'RGB':
+            image = image.convert("RGB")
+        table_bboxes, col_bboxes = [], []
+        
+        if i == 1:
+            
+            #get xml filename
+            xml_file = image_name.replace('bmp', 'xml')
+            table_xml_path = os.path.join(POSITIVE_DATA_LBL, xml_file)
+            column_xml_path = os.path.join(DATA_PATH,xml_file)
+            
+            #get table boxes
+            table_bboxes = get_table_bbox(table_xml_path, (new_h, new_w))
+            
+            #get column boxes , if table boxes are empty, approximate them using column boxes
+            if os.path.exists(column_xml_path):
+                col_bboxes, table_bboxes = get_col_bbox(column_xml_path, (h,w), (new_h, new_w), table_bboxes)
+            else:
+                col_bboxes = []
+        
+        #generate masks
+        table_mask = create_mask(new_h, new_w, table_bboxes)
+        col_mask = create_mask(new_h, new_w, col_bboxes)
+        
+        #save images and masks
+        save_image_path = os.path.join(IMAGE_PATH, image_name.replace('bmp', 'jpg'))
+        save_table_mask_path = os.path.join(TABLE_MASK_PATH, image_name[:-4] + '_table_mask.png')
+        save_col_mask_path = os.path.join(COL_MASK_PATH, image_name[:-4] + '_col_mask.png')
+        
+        image.save(save_image_path)
+        table_mask.save(save_table_mask_path)
+        col_mask.save(save_col_mask_path)
+        
+        #add data to dataframe
+        len_table = len(table_bboxes)
+        len_cols = len(col_bboxes)
+
+        value = (save_image_path, save_table_mask_path, save_col_mask_path, h, w, int(len_table != 0), \
+                 len_table, len_cols, table_bboxes, col_bboxes)
+        
+        processed_data.append(value)
