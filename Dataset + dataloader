@@ -1,0 +1,36 @@
+class ImageDS(nn.Module):
+    def __init__(self, df, isTrain = True, transform = None):
+        super(ImageFolder, self).__init__()
+        self.df = df
+        if transform is None:
+            self.transform = A.Compose([
+                        #ToTensor --> Normalize(mean, std) 
+                        A.Normalize(
+                            mean=[0.485, 0.456, 0.406],
+                            std=[0.229, 0.224, 0.225],
+                            max_pixel_value = 255,
+                        ),
+                        ToTensorV2()
+                    ])
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, index):
+
+        img_path, table_mask_path, col_mask_path = self.df.iloc[index, 0], self.df.iloc[index, 1], self.df.iloc[index, 2]
+        image = np.array(Image.open("../" + img_path))
+        table_image = torch.FloatTensor(np.array(Image.open("../" + table_mask_path))/255.0).reshape(1,1024,1024)
+        column_image = torch.FloatTensor(np.array(Image.open("../" + col_mask_path))/255.0).reshape(1,1024,1024)
+        image = self.transform(image = image)['image']
+
+        return {"image":image,"table_image":table_image, "column_image": column_image}
+      
+df = pd.read_csv(data_path)
+train_data, test_data  = train_test_split(df, test_size = 0.2, random_state = config.SEED, stratify = df.hasTable)
+
+train_dataset = ImageDS(train_data, isTrain = True, transform = None)
+test_dataset = ImageDs(test_data, isTrain = False, transform = None)
+
+train_loader =  DataLoader(train_dataset, batch_size = config.BATCH_SIZE, shuffle=True, num_workers = 4, pin_memory=True)
+test_loader =  DataLoader(test_dataset, batch_size = config.BATCH_SIZE, shuffle=False, num_workers = 4, pin_memory=True)
