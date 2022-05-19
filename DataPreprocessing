@@ -70,7 +70,6 @@ for i, data in enumerate([neg_data, pos_data]):
         image = Image.open(img_path)
         w, h = image.size
         
-        #convert to RGB image
         image = image.resize((new_h, new_w))
         if image.mode != 'RGB':
             image = image.convert("RGB")
@@ -78,25 +77,20 @@ for i, data in enumerate([neg_data, pos_data]):
         
         if i == 1:
             
-            #get xml filename
             xml_file = image_name.replace('bmp', 'xml')
             table_xml_path = os.path.join(POSITIVE_DATA_LBL, xml_file)
             column_xml_path = os.path.join(DATA_PATH,xml_file)
             
-            #get table boxes
             table_bboxes = get_table_bbox(table_xml_path, (new_h, new_w))
             
-            #get column boxes , if table boxes are empty, approximate them using column boxes
             if os.path.exists(column_xml_path):
                 col_bboxes, table_bboxes = get_col_bbox(column_xml_path, (h,w), (new_h, new_w), table_bboxes)
             else:
                 col_bboxes = []
         
-        #generate masks
         table_mask = create_mask(new_h, new_w, table_bboxes)
         col_mask = create_mask(new_h, new_w, col_bboxes)
         
-        #save images and masks
         save_image_path = os.path.join(IMAGE_PATH, image_name.replace('bmp', 'jpg'))
         save_table_mask_path = os.path.join(TABLE_MASK_PATH, image_name[:-4] + '_table_mask.png')
         save_col_mask_path = os.path.join(COL_MASK_PATH, image_name[:-4] + '_col_mask.png')
@@ -104,8 +98,7 @@ for i, data in enumerate([neg_data, pos_data]):
         image.save(save_image_path)
         table_mask.save(save_table_mask_path)
         col_mask.save(save_col_mask_path)
-        
-        #add data to dataframe
+  
         len_table = len(table_bboxes)
         len_cols = len(col_bboxes)
 
